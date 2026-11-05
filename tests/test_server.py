@@ -305,6 +305,19 @@ class ServerTest(unittest.TestCase):
         r, _ = self.req("GET", "/api/shortcut/send", auth=False)
         self.assertEqual(r.status, 401)
 
+    def test_universal_clipboard_overwrite_is_reverted(self):
+        self.req("POST", "/api/send", json.dumps({"text": "keep me"}), {"Content-Type": "application/json"})
+        n = len(self.clip.writes)
+        self.app.on_remote_clipboard()  # Apple's Universal Clipboard clobbers it moments later
+        self.assertEqual(self.clip.writes[n:], [("text", "keep me")])
+        # Long after our write, Apple's clipboard is left alone
+        self.app.last_write = (time.time() - 120,) + self.app.last_write[1:]
+        self.app.on_remote_clipboard()
+        self.assertEqual(len(self.clip.writes), n + 1)
+        # A remote event never becomes a history item
+        self.app.on_clip_event({"event": "change", "kind": "remote"})
+        self.assertEqual(len(self.items()), 1)
+
     def test_empty_send_rejected(self):
         r, _ = self.req("POST", "/api/send", b"", {"Content-Type": "text/plain"})
         self.assertEqual(r.status, 400)

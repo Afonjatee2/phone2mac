@@ -214,6 +214,7 @@ function capture(pb, dir) {
   for (var i = 0; i < SKIP.length; i++) {
     if (types.indexOf(SKIP[i]) >= 0) return {kind: 'skip', reason: SKIP[i]};
   }
+  if (types.indexOf('com.apple.is-remote-clipboard') >= 0) return {kind: 'remote'};
   if (types.indexOf('public.file-url') >= 0) {
     var paths = [];
     var items = pb.pasteboardItems;
@@ -945,6 +946,42 @@ class App:
         self.batches: dict[str, tuple[float, list[str]]] = {}
         self.batch_lock = threading.Lock()
         self._icon = None
+        self.last_write = None  # (time, set_fn, args, label): what we last put on the Mac clipboard
+        self.guard_lock = threading.Lock()
+
+    # ---- writing the Mac clipboard (with a guard against Universal Clipboard) ----
+    def write_clipboard(self, label: str, fn, *args) -> bool:
+        ok = fn(*args)
+        with self.guard_lock:
+            self.last_write = (time.time(), fn, args, label) if ok else None
+        if ok and sys.platform == "darwin" and fn == self.clip.set_text:
+            threading.Thread(target=self._verify_text, args=(args[0],), daemon=True).start()
+        return ok
+
+    def _verify_text(self, text: str):
+        time.sleep(4)
+        try:
+            env = dict(os.environ, LANG="en_US.UTF-8", LC_ALL="en_US.UTF-8")
+            now = subprocess.run(["pbpaste"], capture_output=True, env=env, timeout=5).stdout.decode("utf-8", "replace")
+        except Exception as e:
+            log("could not verify clipboard:", e)
+            return
+        if now.replace("\r\n", "\n") == text:
+            log("verified: text is on the Mac clipboard")
+        else:
+            log("WARNING: the Mac clipboard was changed by something else within 4s. It now holds:",
+                repr(now[:60]))
+
+    def on_remote_clipboard(self):
+        with self.guard_lock:
+            lw = self.last_write
+        if lw and time.time() - lw[0] < 45:
+            log(f"Apple Universal Clipboard overwrote the clipboard {time.time() - lw[0]:.1f}s after "
+                f"Phone2Mac set it; putting {lw[3]} back")
+            time.sleep(0.3)
+            lw[1](*lw[2])
+        else:
+            log("Apple Universal Clipboard changed the Mac clipboard (not captured)")
 
     # ---- token -----------------------------------------------------------
     def _load_token(self) -> str:
@@ -986,6 +1023,9 @@ class App:
         if evt.get("event") != "change":
             return
         kind = evt.get("kind")
+        if kind == "remote":
+            threading.Thread(target=self.on_remote_clipboard, daemon=True).start()
+            return
         if kind == "text":
             text = evt.get("text") or ""
             if not text.strip() or len(text) > MAX_TEXT:
@@ -1043,7 +1083,7 @@ class App:
         kind = text_kind(text)
         if kind == "link":
             text = text.strip()
-        ok = self.clip.set_text(text)
+        ok = self.write_clipboard("the phone's text", self.clip.set_text, text)
         dup = self.store.find_recent(lambda i: i.get("text") == text, window=5)
         item = self.store.bump(dup["id"]) if dup else self.store.add(self._item("phone", kind, device, text=text))
         preview = text if len(text) < 80 else text[:77] + "..."
@@ -1082,7 +1122,7 @@ class App:
                 paths = prev + paths
                 self.batches[batch] = (now, paths)
         mime = items[0].get("mime") if len(paths) == 1 else None
-        ok = self.clip.set_files(paths, mime)
+        ok = self.write_clipboard(f"{len(paths)} file(s)", self.clip.set_files, paths, mime)
         if len(paths) == 1:
             msg = f"{items[0]['name']} ({human_size(items[0]['size'] or 0)}) saved to {self.inbox.name}"
         else:
@@ -1215,6 +1255,7 @@ def make_handler(app: App):
                     return self._send(200, pair_page(app).encode("utf-8"), "text/html; charset=utf-8")
 
             if not app.check_token(self.token()):
+                log(f"rejected {self.command} {path} from {self.client_address[0]}: missing or wrong pairing key")
                 return self.error(401, "Not paired. On your Mac open http://localhost:%d/pair and scan the QR code." % app.port)
 
             if method in ("GET", "HEAD"):
@@ -1293,11 +1334,11 @@ def make_handler(app: App):
         # ---- copy an existing item onto the Mac clipboard --------------------
         def api_copy(self, item: dict):
             if "text" in item:
-                ok = app.clip.set_text(item["text"])
+                ok = app.write_clipboard("the text", app.clip.set_text, item["text"])
             else:
                 if not item.get("path") or not os.path.exists(item["path"]):
                     return self.error(410, "The file no longer exists on the Mac")
-                ok = app.clip.set_files([item["path"]], item.get("mime"))
+                ok = app.write_clipboard("the file", app.clip.set_files, [item["path"]], item.get("mime"))
             app.store.bump(item["id"])
             if not ok:
                 return self.error(500, "Could not write to the Mac clipboard")
@@ -1306,6 +1347,9 @@ def make_handler(app: App):
         # ---- receive anything from the phone ---------------------------------
         def api_send(self, reader: BodyReader):
             device = device_from_headers(self.headers)
+            ua = self.headers.get("User-Agent", "")
+            via = "Shortcut" if ("reply" in self.query or "CFNetwork" in ua or "Shortcuts" in ua) else "web page"
+            log(f"send request from {device} via {via} ({self.client_address[0]})")
             raw_ct = self.headers.get("Content-Type") or "application/octet-stream"
             m = Message()
             m["Content-Type"] = raw_ct
@@ -1624,6 +1668,12 @@ class DualStackServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
     request_queue_size = 64
+
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionResetError, BrokenPipeError, ConnectionAbortedError, TimeoutError)):
+            return
+        super().handle_error(request, client_address)
 
 
 def make_server(app: App, host: str) -> ThreadingHTTPServer:
