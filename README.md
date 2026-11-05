@@ -53,7 +53,7 @@ Then set up Back Tap: **Settings → Accessibility → Touch → Back Tap** (at 
 - **Double Tap** → “Get from Mac”: copies whatever is on the Mac clipboard to the phone.
 - **Triple Tap** → “Send to Mac”: sends your phone's clipboard to the Mac, so you press ⌘V there.
 
-“Send to Mac” also appears in the Share Sheet of every app (Photos, Files, Safari, WhatsApp, ...), and you can share several photos at once.
+Optionally add **“Share to Mac”** too. It appears in the Share Sheet of every app (Photos, Files, Safari, WhatsApp, ...) and can send several photos at once.
 The first run asks to find devices on your **local network**. Tap **Allow**.
 
 Generating the Shortcuts needs macOS 12+ and an iCloud sign-in on the Mac (Apple's `shortcuts sign` uses it).

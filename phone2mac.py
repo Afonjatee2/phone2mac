@@ -39,7 +39,7 @@ from email.message import Message
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 DEFAULT_PORT = 8765
 MAX_ITEMS = 100                 # history length
 INLINE_TEXT_LIMIT = 200_000     # texts larger than this are truncated in the feed
@@ -535,6 +535,52 @@ def sniff(head: bytes) -> tuple[str, str] | None:
     return None
 
 
+RICH_TEXT_TYPES = ("text/rtf", "application/rtf", "text/richtext", "application/x-rtf", "text/html")
+
+
+def rich_to_text(path: str, fmt: str) -> str | None:
+    """Plain text out of an RTF/HTML body (what iOS sends when you copy styled text)."""
+    if sys.platform == "darwin" and shutil.which("textutil"):
+        try:
+            r = subprocess.run(["textutil", "-format", fmt, "-convert", "txt", "-encoding", "UTF-8",
+                                "-stdout", path], capture_output=True, timeout=20)
+            if r.returncode == 0:
+                return r.stdout.decode("utf-8", "replace").rstrip("\n")
+        except Exception as e:
+            log("textutil failed:", e)
+    raw = Path(path).read_bytes().decode("utf-8", "replace")
+    if fmt == "html":
+        from html.parser import HTMLParser
+
+        class P(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.out, self.skip = [], 0
+
+            def handle_starttag(self, tag, attrs):
+                if tag in ("script", "style", "head"):
+                    self.skip += 1
+                elif tag in ("br", "p", "div", "li", "tr", "h1", "h2", "h3"):
+                    self.out.append("\n")
+
+            def handle_endtag(self, tag):
+                if tag in ("script", "style", "head"):
+                    self.skip = max(0, self.skip - 1)
+
+            def handle_data(self, data):
+                if not self.skip:
+                    self.out.append(data)
+
+        p = P()
+        p.feed(raw)
+        return re.sub(r"\n{3,}", "\n\n", "".join(p.out)).strip()
+    # crude RTF fallback (only used off-Mac)
+    raw = re.sub(r"\{\\\*[^{}]*\}", "", raw)
+    raw = re.sub(r"\\par[d]?\b ?", "\n", raw)
+    raw = re.sub(r"\\'[0-9a-f]{2}|\\[a-z]+-?\d* ?|[{}]", "", raw)
+    return raw.strip()
+
+
 def kind_for_mime(mime: str) -> str:
     if mime.startswith("image/"):
         return "image"
@@ -633,7 +679,7 @@ def make_icon_png(size: int = 180) -> bytes:
 # iOS Shortcuts, generated ready-to-import (signed on the Mac with `shortcuts sign`)
 # --------------------------------------------------------------------------
 
-SHORTCUTS = {"send": "Send to Mac", "get": "Get from Mac"}
+SHORTCUTS = {"send": "Send to Mac", "get": "Get from Mac", "share": "Share to Mac"}
 # Share-sheet input types. Safari pages/articles are deliberately left out so
 # iOS hands us their URL instead.
 SHARE_INPUT_CLASSES = [
@@ -691,7 +737,23 @@ def build_shortcut(kind: str, base: str, token: str) -> dict:
         return dict(common, WFWorkflowActions=actions, WFWorkflowTypes=[], WFWorkflowInputContentItemClasses=[],
                     WFWorkflowHasShortcutInputVariables=False)
 
-    if kind != "send":
+    if kind == "send":
+        # Deliberately minimal (for Back Tap): Get Clipboard -> POST it as the raw body.
+        # The Mac works out whether it's text, rich text, a photo or a file.
+        clip = _uuid()
+        actions = [
+            _action("getclipboard", UUID=clip),
+            _action("downloadurl", UUID=_uuid(), WFURL=f"{base}/api/send?k={q}&reply=text", WFHTTPMethod="POST",
+                    WFHTTPBodyType="File", ShowHeaders=True,
+                    WFRequestVariable=_attach({"Type": "ActionOutput", "OutputName": "Clipboard", "OutputUUID": clip}),
+                    WFHTTPHeaders=_dict_field([("X-Device", _tstr("iPhone"))])),
+            _action("notification", WFNotificationActionTitle="Phone2Mac",
+                    WFNotificationActionBody="Sent to Mac, press ⌘V", WFNotificationActionSound=False),
+        ]
+        return dict(common, WFWorkflowActions=actions, WFWorkflowTypes=[], WFWorkflowInputContentItemClasses=[],
+                    WFWorkflowHasShortcutInputVariables=False)
+
+    if kind != "share":
         raise ValueError(kind)
     item = {"Type": "Variable", "VariableName": "Repeat Item"}
     batch = _var_in_text({"Type": "CurrentDate"})
@@ -1271,7 +1333,7 @@ def make_handler(app: App):
                     if not item:
                         return self.send_text("Nothing copied yet", 404)
                     return self.serve_item(item, inline=False)
-                m = re.fullmatch(r"/api/shortcut/(send|get)(?:\.shortcut)?", path)
+                m = re.fullmatch(r"/api/shortcut/(send|get|share)(?:\.shortcut)?", path)
                 if m:
                     host = self.q("host") or ""
                     if not re.fullmatch(r"[A-Za-z0-9.\-]+(:\d{1,5})?|\[[0-9A-Fa-f:.%]+\](:\d{1,5})?", host):
@@ -1291,7 +1353,7 @@ def make_handler(app: App):
             elif method == "POST":
                 if path == "/api/send":
                     return self.api_send(reader)
-                m = re.fullmatch(r"/api/shortcut/(send|get)/open", path)
+                m = re.fullmatch(r"/api/shortcut/(send|get|share)/open", path)
                 if m:  # import into the Mac's Shortcuts app (iCloud then syncs it to the iPhone)
                     if not self.is_local():
                         return self.error(403, "Only available on the Mac")
@@ -1451,6 +1513,13 @@ def make_handler(app: App):
             if sink.size == 0 or sink.size > MAX_TEXT:
                 return None
             ext = os.path.splitext(fname)[1].lower() if fname else ""
+            head = sink.head.lstrip().lower()
+            octet = ctype in ("application/octet-stream", "binary/octet-stream", "")
+            if ctype in RICH_TEXT_TYPES or (octet and not ext and head.startswith((b"{\\rtf", b"<!doctype html", b"<html", b"<meta"))):
+                if ext and ext not in (".txt",):
+                    return None  # a real .rtf/.html document: keep it as a file
+                fmt = "html" if ("html" in ctype or head.startswith((b"<!doctype", b"<html", b"<meta"))) else "rtf"
+                return rich_to_text(sink.path, fmt)
             if ctype.startswith("text/"):
                 if ext not in ("", ".txt") and ctype != "text/uri-list":
                     return None
@@ -1588,11 +1657,12 @@ ol{padding-left:20px}li{margin:6px 0}
 
 <div class="card">
   <h2>2. iPhone: add the one-tap Shortcuts (recommended)</h2>
-  <div class="muted">These let you send and fetch the clipboard without opening anything: from the Share Sheet, or by tapping the back of your phone. They come pre-filled with your address and key, so there's nothing to type.</div>
+  <div class="muted">These let you send and fetch the clipboard without opening anything, by tapping the back of your phone. They come pre-filled with your address and key, so there's nothing to type. “Share to Mac” is an optional extra for the Share Sheet (several photos at once, etc.).</div>
   <h3 style="font-size:15px;margin:18px 0 6px">Option A: from this Mac (needs Shortcuts iCloud sync)</h3>
   <div class="row">
     <button id="openSend">Add “Send to Mac”</button>
     <button id="openGet">Add “Get from Mac”</button>
+    <button id="openShare" class="ghost">Optional: “Share to Mac”</button>
     <span class="muted" id="openMsg" style="font-size:13px"></span>
   </div>
   <div class="muted" style="font-size:13px">The Shortcuts app opens. Click <b>Add Shortcut</b> for each one, and they appear on your iPhone within a minute (if Settings → [your name] → iCloud → Shortcuts is on).</div>
@@ -1659,6 +1729,7 @@ function openShortcut(kind) {
 }
 document.getElementById('openSend').onclick = () => openShortcut('send');
 document.getElementById('openGet').onclick = () => openShortcut('get');
+document.getElementById('openShare').onclick = () => openShortcut('share');
 window.addEventListener('load', render); render();
 </script></body></html>
 """

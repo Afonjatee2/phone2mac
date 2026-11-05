@@ -293,6 +293,24 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(r.status, 200)
         self.assertEqual(self.items()[0]["kind"], "text")
 
+    def test_rich_text_clipboard_becomes_plain_text(self):
+        html = b"<meta charset='utf-8'><p>Hello <b>bold</b></p><p>world</p>"
+        r, _ = self.req("POST", "/api/send", html, {"Content-Type": "text/html"})
+        self.assertEqual(r.status, 200)
+        it = self.items()[0]
+        self.assertEqual(it["kind"], "text")
+        self.assertEqual(it["text"], "Hello bold\nworld")
+        rtf = rb"{\rtf1\ansi\ansicpg1252{\fonttbl\f0\fswiss Helvetica;}\f0\fs24 Hi from WhatsApp\par second line}"
+        r, _ = self.req("POST", "/api/send", rtf, {"Content-Type": "application/octet-stream"})
+        self.assertEqual(r.status, 200)
+        it = self.items()[0]
+        self.assertEqual(it["kind"], "text")
+        self.assertIn("Hi from WhatsApp", it["text"])
+        self.assertNotIn("\\", it["text"])
+        # a real .rtf document shared on purpose stays a file
+        self.req("POST", "/api/send", rtf, {"Content-Type": "application/rtf", "X-Filename": "notes.rtf"})
+        self.assertEqual(self.items()[0]["kind"], "file")
+
     def test_shortcut_reply_text(self):
         r, d = self.req("POST", "/api/send?reply=text", json.dumps({"text": "x"}), {"Content-Type": "application/json"})
         self.assertEqual(d, b"Sent to Mac")
@@ -337,14 +355,20 @@ class UnitTest(unittest.TestCase):
 
     def test_build_shortcuts(self):
         import plistlib
-        for kind in ("send", "get"):
+        for kind in ("send", "get", "share"):
             wf = phone2mac.build_shortcut(kind, "http://mac.local:8765", "tok/en+")
             raw = plistlib.dumps(wf, fmt=plistlib.FMT_BINARY)
             back = plistlib.loads(raw)
             urls = [a["WFWorkflowActionParameters"].get("WFURL") for a in back["WFWorkflowActions"]]
             urls = [u for u in urls if u]
             self.assertTrue(urls and all(u.startswith("http://mac.local:8765/api/") and "k=tok%2Fen%2B" in u for u in urls), urls)
-        send = phone2mac.build_shortcut("send", "http://h", "t")
+        simple = phone2mac.build_shortcut("send", "http://h", "t")
+        self.assertEqual([a["WFWorkflowActionIdentifier"].split(".")[-1] for a in simple["WFWorkflowActions"]],
+                         ["getclipboard", "downloadurl", "notification"])
+        dl = simple["WFWorkflowActions"][1]["WFWorkflowActionParameters"]
+        self.assertEqual(dl["WFRequestVariable"]["Value"]["OutputUUID"],
+                         simple["WFWorkflowActions"][0]["WFWorkflowActionParameters"]["UUID"])
+        send = phone2mac.build_shortcut("share", "http://h", "t")
         self.assertEqual(send["WFWorkflowNoInputBehavior"]["Name"], "WFWorkflowNoInputBehaviorGetClipboard")
         self.assertIn("ActionExtension", send["WFWorkflowTypes"])
         # control-flow blocks are balanced

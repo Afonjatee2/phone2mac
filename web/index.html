@@ -441,7 +441,8 @@ video.thumb { width: 100%; }
             '. If Safari shows a download instead, tap the ⬇︎ in the address bar and open the file.'),
           el('div', { class: 'actions' },
             el('a', { class: 'btn small primary', href: sc('send') }, 'Add “Send to Mac”'),
-            el('a', { class: 'btn small primary', href: sc('get') }, 'Add “Get from Mac”')),
+            el('a', { class: 'btn small primary', href: sc('get') }, 'Add “Get from Mac”'),
+            el('a', { class: 'btn small', href: sc('share') }, 'Optional: “Share to Mac” (Share Sheet)')),
           el('div', { class: 'fsize', style: 'margin-top:10px' }, 'Then go to ', el('b', {}, 'Settings → Accessibility → Touch → Back Tap'),
             ': Double Tap = “Get from Mac”, Triple Tap = “Send to Mac”. When asked about devices on your local network, tap ', el('b', {}, 'Allow'), '.')));
       }
