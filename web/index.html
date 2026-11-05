@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Phone2Mac">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111114" media="(prefers-color-scheme: dark)">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" href="/icon.png">
+<title>Phone2Mac</title>
+<style>
+:root {
+  --bg: #f5f5f7; --card: #ffffff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e5e5ea;
+  --accent: #5b4be1; --accent-fg: #fff; --soft: #efedff; --ok: #1f9d55; --bad: #d93025;
+  --mac: #0a84ff; --phone: #af52de; --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111114; --card: #1c1c20; --fg: #f5f5f7; --muted: #a1a1a6; --line: #2c2c31;
+    --accent: #8b7dff; --accent-fg: #111; --soft: #27243d; --shadow: none;
+  }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); }
+body {
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+main { max-width: 680px; margin: 0 auto; padding: 14px 16px 48px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 2px 14px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; letter-spacing: -.01em; }
+.brand img { width: 30px; height: 30px; border-radius: 8px; }
+.status { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.on { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent); }
+.dot.off { background: var(--bad); }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); }
+.composer { padding: 12px; }
+.composer.drag { outline: 2px dashed var(--accent); outline-offset: 3px; }
+textarea {
+  width: 100%; min-height: 92px; max-height: 40vh; resize: vertical; border: 0; outline: 0; background: transparent;
+  color: var(--fg); font: inherit; font-size: 16px; padding: 6px 4px;
+}
+textarea::placeholder { color: var(--muted); }
+.bar { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.spacer { flex: 1; }
+button, .btn {
+  font: inherit; font-size: 15px; font-weight: 600; border: 0; border-radius: 10px; padding: 9px 14px;
+  background: var(--soft); color: var(--accent); cursor: pointer; text-decoration: none; display: inline-flex;
+  align-items: center; gap: 6px; line-height: 1.2; white-space: nowrap;
+}
+button.primary { background: var(--accent); color: var(--accent-fg); }
+button:disabled { opacity: .45; cursor: default; }
+button:active, .btn:active { transform: scale(.97); }
+.small { font-size: 13px; padding: 6px 10px; border-radius: 8px; }
+.ghost { background: transparent; color: var(--muted); font-weight: 500; }
+.toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); user-select: none; }
+.toggle input { accent-color: var(--accent); }
+.progress { height: 4px; background: var(--line); border-radius: 4px; overflow: hidden; margin-top: 10px; display: none; }
+.progress > div { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+.progress-label { font-size: 13px; color: var(--muted); margin-top: 6px; display: none; }
+
+.section-title { display: flex; align-items: center; justify-content: space-between; margin: 22px 4px 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+.feed { display: flex; flex-direction: column; gap: 10px; }
+.item { padding: 12px 12px 10px; }
+.item.top { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.meta { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); margin-bottom: 6px; }
+.tag { font-weight: 700; font-size: 11.5px; padding: 2px 7px; border-radius: 6px; letter-spacing: .02em; }
+.tag.mac { color: var(--mac); background: color-mix(in srgb, var(--mac) 13%, transparent); }
+.tag.phone { color: var(--phone); background: color-mix(in srgb, var(--phone) 13%, transparent); }
+.now { color: var(--accent); font-weight: 600; }
+.content { word-break: break-word; overflow-wrap: anywhere; }
+.text { white-space: pre-wrap; max-height: 9.5em; overflow: hidden; position: relative; }
+.text.clamped::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2.2em; background: linear-gradient(transparent, var(--card)); }
+.text.open { max-height: none; }
+.text.open::after { display: none; }
+.more { font-size: 13px; color: var(--accent); background: none; padding: 2px 0; font-weight: 500; }
+a.link { color: var(--accent); font-weight: 500; text-decoration: none; }
+.thumb { display: block; max-width: 100%; max-height: 300px; border-radius: 10px; background: var(--line); }
+video.thumb { width: 100%; }
+.file { display: flex; align-items: center; gap: 12px; }
+.ficon { width: 42px; height: 42px; border-radius: 10px; background: var(--soft); color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 20px; flex: none; }
+.fname { font-weight: 600; }
+.fsize { font-size: 13px; color: var(--muted); }
+.actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+.empty { text-align: center; color: var(--muted); padding: 34px 18px; }
+.empty b { color: var(--fg); }
+.tips { font-size: 13.5px; color: var(--muted); margin: 26px 4px 0; line-height: 1.55; }
+.tips b { color: var(--fg); font-weight: 600; }
+.notice { padding: 18px; text-align: center; }
+.notice h2 { margin: 6px 0 8px; font-size: 19px; }
+.notice code { font: 13px ui-monospace, Menlo, monospace; background: var(--soft); padding: 2px 6px; border-radius: 6px; word-break: break-all; }
+#toast {
+  position: fixed; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(20px);
+  background: var(--fg); color: var(--bg); padding: 11px 16px; border-radius: 12px; font-size: 15px; font-weight: 500;
+  opacity: 0; pointer-events: none; transition: all .2s; max-width: calc(100% - 32px); text-align: center; z-index: 10;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+#toast.err { background: var(--bad); color: #fff; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="brand"><img src="/icon.png" alt=""><span>Phone2Mac</span></div>
+    <div class="status"><span class="dot" id="dot"></span><span id="statusText">Connecting…</span></div>
+  </header>
+
+  <div id="unpaired" class="card notice hidden">
+    <div style="font-size:34px">🔗</div>
+    <h2>Not paired yet</h2>
+    <div class="muted">On your Mac, open <code>http://localhost:8765/pair</code> and scan the QR code with this phone's camera.</div>
+  </div>
+
+  <div id="app" class="hidden">
+    <section class="card composer" id="composer">
+      <textarea id="input" placeholder="Tap here and Paste, it goes to your Mac instantly. Or type something." autocapitalize="sentences"></textarea>
+      <div class="bar">
+        <button class="primary" id="sendBtn" disabled>Send</button>
+        <button id="fileBtn">📎 Photos &amp; files</button>
+        <input type="file" id="fileInput" multiple class="hidden">
+        <span class="spacer"></span>
+        <label class="toggle"><input type="checkbox" id="autoPaste" checked> Send on paste</label>
+      </div>
+      <div class="progress" id="progress"><div></div></div>
+      <div class="progress-label" id="progressLabel"></div>
+    </section>
+
+    <div class="section-title">
+      <span id="feedTitle">Clipboard</span>
+      <button class="ghost small" id="clearBtn">Clear</button>
+    </div>
+    <div class="feed" id="feed"></div>
+
+    <div class="tips" id="tips"></div>
+  </div>
+</main>
+<div id="toast"></div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+
+  // ---- pairing key: from ?k= (kept in the URL so "Add to Home Screen" keeps it) or remembered ----
+  const params = new URLSearchParams(location.search);
+  let K = params.get('k') || '';
+  try {
+    if (K) localStorage.setItem('p2m_key', K);
+    else K = localStorage.getItem('p2m_key') || '';
+  } catch (e) {}
+  if (K && !params.get('k')) history.replaceState(null, '', '?k=' + encodeURIComponent(K));
+
+  const isLocalHost = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  const isIPadDesktop = /Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1;
+  const DEVICE = /iPhone/.test(navigator.userAgent) ? 'iPhone' : (/iPad/.test(navigator.userAgent) || isIPadDesktop) ? 'iPad'
+    : /Android/.test(navigator.userAgent) ? 'Android' : isLocalHost ? 'Mac' : 'Browser';
+
+  let viewer = isLocalHost ? 'mac' : 'phone';
+  let version = null;
+  let items = [];
+  let host = '';
+  let pollCtl = null;
+  let failures = 0;
+
+  const api = (path) => path + (path.includes('?') ? '&' : '?') + 'k=' + encodeURIComponent(K);
+  const fileUrl = (it, dl) => api('/api/file/' + it.id + '/' + encodeURIComponent(it.name || 'file') + (dl ? '?dl=1' : ''));
+
+  // ---- toast ----
+  let toastTimer;
+  function toast(msg, isErr) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.className = 'show' + (isErr ? ' err' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (t.className = isErr ? 'err' : ''), isErr ? 3500 : 1800);
+  }
+
+  // ---- status ----
+  function setStatus(state, text) {
+    $('dot').className = 'dot ' + (state === 'on' ? 'on' : state === 'off' ? 'off' : '');
+    $('statusText').textContent = text;
+  }
+
+  // ---- copy to *this* device's clipboard. Works on plain http (iOS/Android) via execCommand ----
+  function legacyCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;';
+    document.body.appendChild(ta);
+    const sel = document.getSelection();
+    const prev = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+    ta.contentEditable = 'true';
+    ta.readOnly = false;
+    const range = document.createRange();
+    range.selectNodeContents(ta);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    ta.setSelectionRange(0, text.length);
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) {}
+    ta.blur();
+    document.body.removeChild(ta);
+    sel.removeAllRanges();
+    if (prev) sel.addRange(prev);
+    return ok;
+  }
+  async function copyLocal(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      try { await navigator.clipboard.writeText(text); return true; } catch (e) {}
+    }
+    return legacyCopy(text);
+  }
+
+  // ---- server calls ----
+  async function post(path, body, headers) {
+    const r = await fetch(api(path), { method: 'POST', body, headers: Object.assign({ 'X-Device': DEVICE }, headers || {}) });
+    let data = {};
+    try { data = await r.json(); } catch (e) {}
+    if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    return data;
+  }
+
+  async function sendText(text) {
+    if (!text.trim()) return;
+    $('sendBtn').disabled = true;
+    try {
+      await post('/api/send', JSON.stringify({ text }), { 'Content-Type': 'application/json' });
+      $('input').value = '';
+      toast(viewer === 'mac' ? 'Added ✓ open the page on your phone to copy it' : 'On your Mac clipboard ✓  press ⌘V');
+      refreshNow();
+    } catch (e) {
+      $('input').value = text;
+      toast('Not sent: ' + e.message, true);
+    } finally {
+      updateSendBtn();
+    }
+  }
+
+  function uploadOne(file, batch, index, count) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', api('/api/send'));
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+      xhr.setRequestHeader('X-Filename', encodeURIComponent(file.name || ''));
+      xhr.setRequestHeader('X-Batch', batch);
+      xhr.setRequestHeader('X-Device', DEVICE);
+      xhr.upload.onprogress = (e) => {
+        if (!e.lengthComputable) return;
+        const pct = ((index + e.loaded / e.total) / count) * 100;
+        $('progress').firstElementChild.style.width = pct.toFixed(1) + '%';
+        $('progressLabel').textContent = `Sending ${count > 1 ? (index + 1) + ' of ' + count + ': ' : ''}${file.name || 'file'} · ${Math.round(e.loaded / e.total * 100)}%`;
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) return resolve();
+        let msg = 'HTTP ' + xhr.status;
+        try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) {}
+        reject(new Error(msg));
+      };
+      xhr.onerror = () => reject(new Error('connection lost'));
+      xhr.send(file);
+    });
+  }
+
+  let uploading = false;
+  async function uploadFiles(files) {
+    files = Array.from(files || []).filter(Boolean);
+    if (!files.length || uploading) return;
+    uploading = true;
+    const batch = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    $('progress').style.display = 'block';
+    $('progressLabel').style.display = 'block';
+    $('progress').firstElementChild.style.width = '0%';
+    let sent = 0;
+    try {
+      for (let i = 0; i < files.length; i++) {
+        let tries = 0;
+        while (true) {
+          try { await uploadOne(files[i], batch, i, files.length); break; }
+          catch (e) {
+            if (++tries >= 3) throw e;
+            $('progressLabel').textContent = 'Connection hiccup, retrying…';
+            await new Promise((r) => setTimeout(r, 1200 * tries));
+          }
+        }
+        sent++;
+      }
+      toast(viewer === 'mac' ? `Added ${sent} file${sent > 1 ? 's' : ''}` :
+        `${sent} file${sent > 1 ? 's' : ''} on your Mac ✓  press ⌘V`);
+    } catch (e) {
+      toast(`Sent ${sent}/${files.length}. ${e.message}`, true);
+    } finally {
+      uploading = false;
+      setTimeout(() => { $('progress').style.display = 'none'; $('progressLabel').style.display = 'none'; }, 600);
+      refreshNow();
+    }
+  }
+
+  async function copyToMac(it) {
+    try { await post('/api/copy/' + it.id); toast(viewer === 'mac' ? 'Copied ✓' : 'On your Mac clipboard ✓'); refreshNow(); }
+    catch (e) { toast(e.message, true); }
+  }
+  async function del(it) {
+    try { await post('/api/delete/' + it.id); refreshNow(); } catch (e) { toast(e.message, true); }
+  }
+
+  // ---- rendering ----
+  function ago(ts) {
+    const s = Math.max(0, Date.now() / 1000 - ts);
+    if (s < 45) return 'just now';
+    if (s < 3600) return Math.round(s / 60) + ' min ago';
+    if (s < 86400) return Math.round(s / 3600) + ' h ago';
+    return new Date(ts * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+  function size(n) {
+    if (n == null) return '';
+    const u = ['B', 'KB', 'MB', 'GB']; let i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return (i ? n.toFixed(1) : n) + ' ' + u[i];
+  }
+  function el(tag, attrs, ...kids) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (k === 'class') e.className = v;
+      else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+      else if (v !== undefined && v !== null && v !== false) e.setAttribute(k, v);
+    }
+    for (const kid of kids.flat()) if (kid != null) e.append(kid);
+    return e;
+  }
+  function btn(label, onclick, cls) { return el('button', { class: 'small ' + (cls || ''), onclick }, label); }
+  function hrefFor(text) {
+    const t = text.trim();
+    if (/^https?:\/\//i.test(t)) return t;
+    if (/^www\./i.test(t)) return 'https://' + t;
+    return null;
+  }
+  const ICONS = { file: '📄', video: '🎬', audio: '🎵', folder: '🗂️', image: '🖼️' };
+  const openTexts = new Set();
+
+  function renderItem(it, isTop) {
+    const fromMac = it.source === 'mac';
+    const meta = el('div', { class: 'meta' },
+      el('span', { class: 'tag ' + (fromMac ? 'mac' : 'phone') }, fromMac ? 'MAC' : (it.device || 'PHONE').toUpperCase()),
+      el('span', {}, ago(it.created)),
+      isTop ? el('span', { class: 'now' }, '· on Mac clipboard') : null);
+
+    const content = el('div', { class: 'content' });
+    const actions = el('div', { class: 'actions' });
+    const isText = it.kind === 'text' || it.kind === 'link';
+
+    if (isText) {
+      if (it.kind === 'link' && hrefFor(it.text)) {
+        content.append(el('a', { class: 'link', href: hrefFor(it.text), target: '_blank', rel: 'noopener noreferrer' }, it.text.trim()));
+      } else {
+        const t = el('div', { class: 'text' + (openTexts.has(it.id) ? ' open' : '') }, it.text);
+        content.append(t);
+        requestAnimationFrame(() => {
+          if (t.scrollHeight > t.clientHeight + 4) {
+            t.classList.add('clamped');
+            content.append(el('button', { class: 'more', onclick: (e) => { t.classList.add('open'); openTexts.add(it.id); e.target.remove(); } }, 'Show all'));
+          }
+        });
+      }
+      if (viewer === 'mac') {
+        actions.append(btn(isTop ? 'Copied' : 'Copy', () => copyToMac(it), 'primary'));
+      } else {
+        actions.append(btn('Copy', async (e) => {
+          if (it.truncated) { toast('Too long to copy from here: use Download', true); return; }
+          const ok = await copyLocal(it.text);
+          toast(ok ? 'Copied to this phone ✓' : 'Copy blocked: long-press the text instead', !ok);
+        }, 'primary'));
+        if (!isTop) actions.append(btn('Copy to Mac', () => copyToMac(it)));
+      }
+      if (it.kind === 'link' && hrefFor(it.text)) actions.append(el('a', { class: 'btn small', href: hrefFor(it.text), target: '_blank', rel: 'noopener noreferrer' }, 'Open'));
+      if (it.truncated) actions.append(el('a', { class: 'btn small', href: api('/api/text/' + it.id + '?dl=1') }, 'Download'));
+    } else {
+      const missing = it.exists === false;
+      if (it.kind === 'image' && !missing) {
+        content.append(el('a', { href: fileUrl(it), target: '_blank' }, el('img', { class: 'thumb', src: fileUrl(it), alt: it.name, loading: 'lazy' })));
+      } else if (it.kind === 'video' && !missing && it.size < 400 * 1024 * 1024) {
+        content.append(el('video', { class: 'thumb', src: fileUrl(it), controls: '', playsinline: '', preload: 'metadata' }));
+      }
+      content.append(el('div', { class: 'file', style: it.kind === 'image' && !missing ? 'margin-top:8px' : '' },
+        it.kind === 'image' && !missing ? null : el('div', { class: 'ficon' }, ICONS[it.kind] || '📄'),
+        el('div', {}, el('div', { class: 'fname' }, it.name || 'file'),
+          el('div', { class: 'fsize' }, missing ? 'No longer on the Mac' : (it.kind === 'folder' ? 'Folder · downloads as .zip' : size(it.size))))));
+      if (!missing) {
+        if (viewer === 'mac') {
+          actions.append(btn(isTop ? 'On clipboard' : 'Copy', () => copyToMac(it), 'primary'));
+          actions.append(btn('Show in Finder', () => post('/api/reveal/' + it.id).catch((e) => toast(e.message, true))));
+        } else {
+          actions.append(el('a', { class: 'btn small primary', href: fileUrl(it, true), download: it.name || '' }, 'Save'));
+          if (it.kind === 'image' || it.kind === 'video' || /pdf/.test(it.mime || '')) actions.append(el('a', { class: 'btn small', href: fileUrl(it), target: '_blank' }, 'Open'));
+          if (!isTop) actions.append(btn('Copy to Mac', () => copyToMac(it)));
+        }
+      }
+    }
+    actions.append(el('span', { class: 'spacer' }), btn('✕', () => del(it), 'ghost'));
+    return el('div', { class: 'card item' + (isTop ? ' top' : '') }, meta, content, actions);
+  }
+
+  let lastRenderKey = '';
+  function render() {
+    const feed = $('feed');
+    const key = version + ':' + Math.floor(Date.now() / 60000);
+    if (key === lastRenderKey) return;
+    lastRenderKey = key;
+    feed.replaceChildren();
+    if (!items.length) {
+      feed.append(el('div', { class: 'card empty' },
+        el('div', { style: 'font-size:30px;margin-bottom:6px' }, '📋'),
+        viewer === 'mac'
+          ? el('div', {}, 'Copy anything on this Mac (', el('b', {}, '⌘C'), ') and it shows up on your phone. Things sent from the phone appear here too.')
+          : el('div', {}, 'Copy anything on your Mac (', el('b', {}, '⌘C'), ') and it appears here. Paste above to send to the Mac.')));
+      return;
+    }
+    items.forEach((it, i) => feed.append(renderItem(it, i === 0)));
+  }
+
+  function renderTips() {
+    const t = $('tips');
+    t.replaceChildren();
+    if (viewer === 'mac') {
+      t.append(el('div', {}, el('b', {}, 'This Mac. '), 'Drag files onto this page to make them available on your phone, or just copy them in Finder. ',
+        el('a', { class: 'link', href: '/pair' }, 'Pair a phone / set up Shortcuts →')));
+    } else {
+      t.append(
+        el('div', {}, el('b', {}, 'Tip: '), 'Share → ', el('b', {}, 'Add to Home Screen'), ' to open this in one tap.'),
+        el('div', { style: 'margin-top:6px' }, el('b', {}, 'iPhone power move: '), 'set up the “Send to Mac” and “Get from Mac” Shortcuts (instructions on the Mac at ',
+          el('b', {}, 'localhost:8765/pair'), ') and put them on Back Tap.'));
+    }
+  }
+
+  // ---- live updates: long-poll, survives sleep / network changes ----
+  async function poll() {
+    while (true) {
+      pollCtl = new AbortController();
+      const timeout = setTimeout(() => pollCtl.abort(), 40000);
+      try {
+        const wait = version != null && !forceNext;
+        forceNext = false;
+        const url = api('/api/items' + (wait ? '?v=' + version + '&wait=1' : ''));
+        const r = await fetch(url, { cache: 'no-store', signal: pollCtl.signal });
+        clearTimeout(timeout);
+        if (r.status === 401) { showUnpaired(); return; }
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        failures = 0;
+        host = d.host || host;
+        if (d.viewer !== viewer) { viewer = d.viewer; renderTips(); }
+        setStatus('on', viewer === 'mac' ? 'This Mac' : 'Connected' + (host ? ' to ' + host.replace(/\.local$/, '') : ''));
+        if (d.version !== version) { version = d.version; items = d.items; render(); }
+      } catch (e) {
+        clearTimeout(timeout);
+        if (e.name === 'AbortError' && document.visibilityState === 'visible' && failures === 0) continue;
+        failures++;
+        setStatus(failures > 1 ? 'off' : '', failures > 1 ? 'Can’t reach Mac, retrying…' : 'Reconnecting…');
+        await new Promise((r) => setTimeout(r, Math.min(1000 * failures, 5000)));
+      }
+    }
+  }
+  let forceNext = false;
+  function refreshNow() { forceNext = true; if (pollCtl) pollCtl.abort(); }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { failures = 0; refreshNow(); } });
+  window.addEventListener('online', () => refreshNow());
+  setInterval(render, 30000); // keep "x min ago" fresh
+
+  function showUnpaired() {
+    $('app').classList.add('hidden');
+    $('unpaired').classList.remove('hidden');
+    setStatus('off', 'Not paired');
+  }
+
+  // ---- composer ----
+  const input = $('input');
+  const autoPaste = $('autoPaste');
+  try { autoPaste.checked = localStorage.getItem('p2m_autopaste') !== '0'; } catch (e) {}
+  autoPaste.onchange = () => { try { localStorage.setItem('p2m_autopaste', autoPaste.checked ? '1' : '0'); } catch (e) {} };
+  function updateSendBtn() { $('sendBtn').disabled = !input.value.trim(); }
+  input.addEventListener('input', updateSendBtn);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendText(input.value); } });
+  input.addEventListener('paste', (e) => {
+    const cd = e.clipboardData;
+    if (!cd) return;
+    const files = Array.from(cd.files || []);
+    if (files.length) { e.preventDefault(); uploadFiles(files); return; }
+    if (autoPaste.checked && !input.value.trim()) {
+      const text = cd.getData('text/plain') || cd.getData('text');
+      if (text && text.trim()) { e.preventDefault(); sendText(text); }
+    }
+  });
+  $('sendBtn').onclick = () => sendText(input.value);
+  $('fileBtn').onclick = () => $('fileInput').click();
+  $('fileInput').onchange = (e) => { uploadFiles(e.target.files); e.target.value = ''; };
+  $('clearBtn').onclick = async () => {
+    if (!confirm('Clear the whole history? Files already saved on the Mac are kept.')) return;
+    try { await post('/api/clear'); refreshNow(); } catch (e) { toast(e.message, true); }
+  };
+
+  // drag & drop anywhere (handy on the Mac)
+  let dragDepth = 0;
+  window.addEventListener('dragenter', (e) => { if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) { e.preventDefault(); dragDepth++; $('composer').classList.add('drag'); } });
+  window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('composer').classList.remove('drag'); } });
+  window.addEventListener('dragover', (e) => e.preventDefault());
+  window.addEventListener('drop', (e) => {
+    e.preventDefault(); dragDepth = 0; $('composer').classList.remove('drag');
+    if (e.dataTransfer && e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
+    else if (e.dataTransfer) { const t = e.dataTransfer.getData('text/plain'); if (t) sendText(t); }
+  });
+
+  // ---- start ----
+  if (!K) { showUnpaired(); return; }
+  $('app').classList.remove('hidden');
+  renderTips();
+  poll();
+})();
+</script>
+</body>
+</html>
