@@ -629,6 +629,138 @@ def make_icon_png(size: int = 180) -> bytes:
 
 
 # --------------------------------------------------------------------------
+# iOS Shortcuts, generated ready-to-import (signed on the Mac with `shortcuts sign`)
+# --------------------------------------------------------------------------
+
+SHORTCUTS = {"send": "Send to Mac", "get": "Get from Mac"}
+# Share-sheet input types. Safari pages/articles are deliberately left out so
+# iOS hands us their URL instead.
+SHARE_INPUT_CLASSES = [
+    "WFAppStoreAppContentItem", "WFContactContentItem", "WFDateContentItem", "WFEmailAddressContentItem",
+    "WFGenericFileContentItem", "WFImageContentItem", "WFiTunesProductContentItem", "WFLocationContentItem",
+    "WFDCMapsLinkContentItem", "WFAVAssetContentItem", "WFPDFContentItem", "WFPhoneNumberContentItem",
+    "WFRichTextContentItem", "WFStringContentItem", "WFURLContentItem",
+]
+
+
+def _uuid() -> str:
+    import uuid
+    return str(uuid.uuid4()).upper()
+
+
+def _tstr(text: str, attachments: dict | None = None) -> dict:
+    return {"Value": {"string": text, "attachmentsByRange": attachments or {}}, "WFSerializationType": "WFTextTokenString"}
+
+
+def _var_in_text(var: dict) -> dict:
+    return _tstr("￼", {"{0, 1}": var})
+
+
+def _attach(var: dict) -> dict:
+    return {"Value": var, "WFSerializationType": "WFTextTokenAttachment"}
+
+
+def _dict_field(pairs: list[tuple[str, dict]]) -> dict:
+    return {"Value": {"WFDictionaryFieldValueItems": [
+        {"WFItemType": 0, "WFKey": _tstr(k), "WFValue": v} for k, v in pairs]},
+        "WFSerializationType": "WFDictionaryFieldValue"}
+
+
+def _action(ident: str, **params) -> dict:
+    return {"WFWorkflowActionIdentifier": "is.workflow.actions." + ident, "WFWorkflowActionParameters": params}
+
+
+def build_shortcut(kind: str, base: str, token: str) -> dict:
+    """Return the Shortcuts workflow plist (as a dict) for 'send' or 'get'."""
+    q = urllib.parse.quote(token, safe="")
+    common = {
+        "WFWorkflowClientVersion": "2605.0.5", "WFWorkflowMinimumClientVersion": 900,
+        "WFWorkflowMinimumClientVersionString": "900", "WFWorkflowImportQuestions": [],
+        "WFWorkflowOutputContentItemClasses": [], "WFQuickActionSurfaces": [],
+        "WFWorkflowIcon": {"WFWorkflowIconStartColor": 2071128575, "WFWorkflowIconGlyphNumber": 61440},
+    }
+    if kind == "get":
+        dl = _uuid()
+        actions = [
+            _action("downloadurl", UUID=dl, WFURL=f"{base}/api/latest?k={q}", WFHTTPMethod="GET"),
+            _action("setclipboard", WFInput=_attach({"Type": "ActionOutput", "OutputName": "Contents of URL", "OutputUUID": dl})),
+            _action("notification", WFNotificationActionTitle="Phone2Mac", WFNotificationActionBody="Copied from Mac",
+                    WFNotificationActionSound=False),
+        ]
+        return dict(common, WFWorkflowActions=actions, WFWorkflowTypes=[], WFWorkflowInputContentItemClasses=[],
+                    WFWorkflowHasShortcutInputVariables=False)
+
+    if kind != "send":
+        raise ValueError(kind)
+    item = {"Type": "Variable", "VariableName": "Repeat Item"}
+    batch = _var_in_text({"Type": "CurrentDate"})
+    send_url = f"{base}/api/send?k={q}&reply=text"
+    loop, if_url, if_text, type_uuid = _uuid(), _uuid(), _uuid(), _uuid()
+    type_var = {"Type": "ActionOutput", "OutputName": "Type", "OutputUUID": type_uuid}
+
+    def post_text():
+        return _action("downloadurl", UUID=_uuid(), WFURL=send_url, WFHTTPMethod="POST", WFHTTPBodyType="JSON",
+                       ShowHeaders=True, WFHTTPHeaders=_dict_field([("X-Device", _tstr("iPhone"))]),
+                       WFJSONValues=_dict_field([("text", _var_in_text(item))]))
+
+    def cond(group, contains):
+        return _action("conditional", GroupingIdentifier=group, WFControlFlowMode=0, WFCondition=99,
+                       WFConditionalActionString=contains,
+                       WFInput={"Type": "Variable", "Variable": _attach(type_var)})
+
+    actions = [
+        _action("repeat.each", GroupingIdentifier=loop, WFControlFlowMode=0, WFInput=_attach({"Type": "ExtensionInput"})),
+        _action("getitemtype", UUID=type_uuid, WFInput=_attach(item)),
+        cond(if_url, "URL"),
+        post_text(),
+        _action("conditional", GroupingIdentifier=if_url, WFControlFlowMode=1),
+        cond(if_text, "Text"),
+        post_text(),
+        _action("conditional", GroupingIdentifier=if_text, WFControlFlowMode=1),
+        _action("downloadurl", UUID=_uuid(), WFURL=send_url, WFHTTPMethod="POST", WFHTTPBodyType="File",
+                WFRequestVariable=_attach(item), ShowHeaders=True,
+                WFHTTPHeaders=_dict_field([
+                    ("X-Filename", _var_in_text(dict(item, Aggrandizements=[
+                        {"Type": "WFPropertyVariableAggrandizement", "PropertyName": "Name"}]))),
+                    ("X-Batch", batch),
+                    ("X-Device", _tstr("iPhone"))])),
+        _action("conditional", GroupingIdentifier=if_text, WFControlFlowMode=2),
+        _action("conditional", GroupingIdentifier=if_url, WFControlFlowMode=2),
+        _action("repeat.each", GroupingIdentifier=loop, WFControlFlowMode=2),
+        _action("notification", WFNotificationActionTitle="Phone2Mac",
+                WFNotificationActionBody="Sent to Mac, press ⌘V", WFNotificationActionSound=False),
+    ]
+    return dict(common, WFWorkflowActions=actions, WFWorkflowTypes=["ActionExtension"],
+                WFWorkflowInputContentItemClasses=SHARE_INPUT_CLASSES, WFWorkflowHasShortcutInputVariables=True,
+                WFWorkflowNoInputBehavior={"Name": "WFWorkflowNoInputBehaviorGetClipboard", "Parameters": {}})
+
+
+def signed_shortcut(app: "App", kind: str, base: str) -> Path:
+    """Build + sign a shortcut file (macOS only). Cached until the address or key changes."""
+    import hashlib
+    import plistlib
+    if sys.platform != "darwin" or not shutil.which("shortcuts"):
+        raise RuntimeError("Shortcut files can only be generated on a Mac (macOS 12 or later).")
+    key = hashlib.sha256(f"{VERSION}|{kind}|{base}|{app.token}".encode()).hexdigest()[:16]
+    out_dir = app.data_dir / "shortcuts" / key
+    out = out_dir / f"{SHORTCUTS[kind]}.shortcut"
+    if out.exists():
+        return out
+    shutil.rmtree(out_dir, ignore_errors=True)
+    out_dir.mkdir(parents=True)
+    unsigned = out_dir / "unsigned.shortcut"
+    unsigned.write_bytes(plistlib.dumps(build_shortcut(kind, base, app.token), fmt=plistlib.FMT_BINARY))
+    r = subprocess.run(["shortcuts", "sign", "--mode", "anyone", "--input", str(unsigned), "--output", str(out)],
+                       capture_output=True, text=True, timeout=120)
+    unsigned.unlink(missing_ok=True)
+    if r.returncode != 0 or not out.exists():
+        shutil.rmtree(out_dir, ignore_errors=True)
+        raise RuntimeError("Signing failed (are you signed in to iCloud on this Mac?): "
+                           + (r.stderr or r.stdout).strip()[-300:])
+    return out
+
+
+# --------------------------------------------------------------------------
 # Request body readers (Content-Length, chunked, multipart streaming)
 # --------------------------------------------------------------------------
 
@@ -1098,6 +1230,17 @@ def make_handler(app: App):
                     if not item:
                         return self.send_text("Nothing copied yet", 404)
                     return self.serve_item(item, inline=False)
+                m = re.fullmatch(r"/api/shortcut/(send|get)(?:\.shortcut)?", path)
+                if m:
+                    host = self.q("host") or ""
+                    if not re.fullmatch(r"[A-Za-z0-9.\-]+(:\d{1,5})?|\[[0-9A-Fa-f:.%]+\](:\d{1,5})?", host):
+                        host = ""
+                    base = f"http://{host}" if host else app.base_urls()[0]
+                    try:
+                        f = signed_shortcut(app, m.group(1), base)
+                    except Exception as e:
+                        return self.error(501, str(e))
+                    return self.send_file(str(f), "application/octet-stream", f.name, inline=False)
                 m = re.fullmatch(r"/api/(file|text)/([0-9a-f]+)(?:/.*)?", path)
                 if m:
                     item = app.store.get(m.group(2))
@@ -1107,6 +1250,16 @@ def make_handler(app: App):
             elif method == "POST":
                 if path == "/api/send":
                     return self.api_send(reader)
+                m = re.fullmatch(r"/api/shortcut/(send|get)/open", path)
+                if m:  # import into the Mac's Shortcuts app (iCloud then syncs it to the iPhone)
+                    if not self.is_local():
+                        return self.error(403, "Only available on the Mac")
+                    try:
+                        f = signed_shortcut(app, m.group(1), app.base_urls()[0])
+                    except Exception as e:
+                        return self.error(501, str(e))
+                    subprocess.Popen(["open", str(f)])
+                    return self.send_json({"ok": True})
                 if path == "/api/clear":
                     app.store.clear()
                     return self.send_json({"ok": True})
@@ -1258,7 +1411,8 @@ def make_handler(app: App):
                 if ext not in ("", ".txt") and ctype != "text/uri-list":
                     return None
             elif ctype in ("application/octet-stream", "binary/octet-stream", ""):
-                if fname or sniff(sink.head):
+                # Shortcuts may label text "Text" with no extension: still text.
+                if os.path.splitext(fname)[1] or sniff(sink.head):
                     return None
             else:
                 return None
@@ -1389,27 +1543,41 @@ ol{padding-left:20px}li{margin:6px 0}
 </div>
 
 <div class="card">
-  <h2>2. Optional but recommended on iPhone: one-tap Shortcuts</h2>
-  <div class="muted">These give you true one-tap copy/paste, including from the Share Sheet and by tapping the back of the phone. Open the Shortcuts app, tap <b>+</b>, and build these two.</div>
-  <h3 style="font-size:15px;margin:18px 0 6px">“Send to Mac”</h3>
+  <h2>2. iPhone: add the one-tap Shortcuts (recommended)</h2>
+  <div class="muted">These let you send and fetch the clipboard without opening anything: from the Share Sheet, or by tapping the back of your phone. They come pre-filled with your address and key, so there's nothing to type.</div>
+  <h3 style="font-size:15px;margin:18px 0 6px">Option A: from this Mac (needs Shortcuts iCloud sync)</h3>
+  <div class="row">
+    <button id="openSend">Add “Send to Mac”</button>
+    <button id="openGet">Add “Get from Mac”</button>
+    <span class="muted" id="openMsg" style="font-size:13px"></span>
+  </div>
+  <div class="muted" style="font-size:13px">The Shortcuts app opens. Click <b>Add Shortcut</b> for each one, and they appear on your iPhone within a minute (if Settings → [your name] → iCloud → Shortcuts is on).</div>
+  <h3 style="font-size:15px;margin:18px 0 6px">Option B: on the iPhone</h3>
+  <div class="muted">Open the Phone2Mac page on the iPhone (the one you paired above). At the bottom, tap <b>Add “Send to Mac”</b> and then <b>Add “Get from Mac”</b>. If Safari asks, tap <b>Download</b>. Then open the download (the ⬇︎ icon in the address bar) and tap <b>Add Shortcut</b>.</div>
+  <h3 style="font-size:15px;margin:18px 0 6px">Then: Back Tap</h3>
+  <div class="muted">On the iPhone go to <b>Settings → Accessibility → Touch → Back Tap</b> (at the very bottom). Set <b>Double Tap</b> to “Get from Mac” and <b>Triple Tap</b> to “Send to Mac” (they're listed under <i>Shortcuts</i>, scroll down). The first time each one runs, iPhone asks to allow connecting to devices on your local network. Tap <b>Allow</b>.</div>
+  <details style="margin-top:16px"><summary class="muted" style="cursor:pointer">Build them by hand instead</summary>
+  <div class="muted" style="font-size:14px;margin-top:8px">Menu names move a little between iOS versions. If something's named differently, look for the closest match.</div>
+  <h3 style="font-size:15px;margin:14px 0 6px">“Get from Mac” (the simple one)</h3>
   <ol>
-    <li>Tap the <b>ⓘ</b> settings: turn on <b>Show in Share Sheet</b> and set it to receive <b>Any</b> input. Under “If there's no input” pick <b>Get Clipboard</b>.</li>
-    <li>Add action <b>Get Contents of URL</b>. URL:</li>
+    <li>Shortcuts app → <b>+</b> (top right). Tap the name at the top and rename it “Get from Mac”.</li>
+    <li>In the search bar at the bottom type <b>Get Contents of URL</b> and tap it. Tap the blue <b>URL</b> placeholder and paste:</li>
+  </ol>
+  <div class="row"><span class="code" id="geturl"></span><button data-copy="geturl">Copy</button></div>
+  <ol start="3">
+    <li>Search for <b>Copy to Clipboard</b> and add it. It uses “Contents of URL” automatically. Tap <b>Done</b>.</li>
+  </ol>
+  <h3 style="font-size:15px;margin:14px 0 6px">“Send to Mac”</h3>
+  <ol>
+    <li>New shortcut, named “Send to Mac”. Add <b>Get Clipboard</b>.</li>
+    <li>Add <b>Get Contents of URL</b>, paste this URL:</li>
   </ol>
   <div class="row"><span class="code" id="sendurl"></span><button data-copy="sendurl">Copy</button></div>
   <ol start="3">
-    <li>Tap <b>Show More</b>: Method <b>POST</b>, Request Body <b>File</b>, File = <b>Shortcut Input</b>.</li>
-    <li>(Optional) Add header <code>X-Filename</code> = <b>Shortcut Input → Name</b> to keep original file names.</li>
+    <li>Tap the <b>›</b> arrow on that action to expand it. Method: <b>POST</b>. Request Body: <b>File</b>. Tap the File field and choose <b>Clipboard</b>.</li>
+    <li>Tap <b>Done</b>. (This hand-built version sends whatever is on your clipboard. The ready-made one above also works from the Share Sheet.)</li>
   </ol>
-  <h3 style="font-size:15px;margin:18px 0 6px">“Get from Mac”</h3>
-  <ol>
-    <li>Add <b>Get Contents of URL</b> with this URL (method GET):</li>
-  </ol>
-  <div class="row"><span class="code" id="geturl"></span><button data-copy="geturl">Copy</button></div>
-  <ol start="2">
-    <li>Add <b>Copy to Clipboard</b> (input: Contents of URL). Optionally add <b>Show Notification</b> “Copied from Mac”.</li>
-  </ol>
-  <div class="muted">Then: <b>Settings → Accessibility → Touch → Back Tap</b>. Double Tap = “Get from Mac”, Triple Tap = “Send to Mac”. The first run asks for Local Network permission. Allow it.</div>
+  </details>
 </div>
 
 <div class="card">
@@ -1438,6 +1606,15 @@ document.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => {
   navigator.clipboard.writeText(document.getElementById(b.dataset.copy).textContent);
   b.textContent = 'Copied'; setTimeout(() => b.textContent = 'Copy', 1200);
 });
+function openShortcut(kind) {
+  const m = document.getElementById('openMsg');
+  m.textContent = 'Preparing… (signing with Apple can take ~10s)';
+  fetch('/api/shortcut/' + kind + '/open?k=' + encodeURIComponent(D.token), {method: 'POST'})
+    .then(r => r.json()).then(d => { m.textContent = d.ok ? 'Opened in Shortcuts, click “Add Shortcut”.' : d.error; })
+    .catch(e => { m.textContent = String(e); });
+}
+document.getElementById('openSend').onclick = () => openShortcut('send');
+document.getElementById('openGet').onclick = () => openShortcut('get');
 window.addEventListener('load', render); render();
 </script></body></html>
 """

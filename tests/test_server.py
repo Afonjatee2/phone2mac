@@ -287,6 +287,24 @@ class ServerTest(unittest.TestCase):
             self.app.on_clip_event({"event": "change", "kind": "text", "text": f"item {i}"})
         self.assertEqual(len(self.items()), phone2mac.MAX_ITEMS)
 
+    def test_shortcut_text_labelled_without_extension_is_text(self):
+        r, _ = self.req("POST", "/api/send", "from shortcut".encode(),
+                        {"Content-Type": "application/octet-stream", "X-Filename": "Text"})
+        self.assertEqual(r.status, 200)
+        self.assertEqual(self.items()[0]["kind"], "text")
+
+    def test_shortcut_reply_text(self):
+        r, d = self.req("POST", "/api/send?reply=text", json.dumps({"text": "x"}), {"Content-Type": "application/json"})
+        self.assertEqual(d, b"Sent to Mac")
+
+    def test_shortcut_download_needs_mac(self):
+        if sys.platform == "darwin":
+            self.skipTest("would really sign")
+        r, d = self.req("GET", "/api/shortcut/send?host=my-mac.local:8765")
+        self.assertEqual(r.status, 501)
+        r, _ = self.req("GET", "/api/shortcut/send", auth=False)
+        self.assertEqual(r.status, 401)
+
     def test_empty_send_rejected(self):
         r, _ = self.req("POST", "/api/send", b"", {"Content-Type": "text/plain"})
         self.assertEqual(r.status, 400)
@@ -303,6 +321,27 @@ class UnitTest(unittest.TestCase):
         self.assertEqual(phone2mac.text_kind("https://a.b/c"), "link")
         self.assertEqual(phone2mac.text_kind(" www.x.com "), "link")
         self.assertEqual(phone2mac.text_kind("see https://a.b"), "text")
+
+    def test_build_shortcuts(self):
+        import plistlib
+        for kind in ("send", "get"):
+            wf = phone2mac.build_shortcut(kind, "http://mac.local:8765", "tok/en+")
+            raw = plistlib.dumps(wf, fmt=plistlib.FMT_BINARY)
+            back = plistlib.loads(raw)
+            urls = [a["WFWorkflowActionParameters"].get("WFURL") for a in back["WFWorkflowActions"]]
+            urls = [u for u in urls if u]
+            self.assertTrue(urls and all(u.startswith("http://mac.local:8765/api/") and "k=tok%2Fen%2B" in u for u in urls), urls)
+        send = phone2mac.build_shortcut("send", "http://h", "t")
+        self.assertEqual(send["WFWorkflowNoInputBehavior"]["Name"], "WFWorkflowNoInputBehaviorGetClipboard")
+        self.assertIn("ActionExtension", send["WFWorkflowTypes"])
+        # control-flow blocks are balanced
+        groups = {}
+        for a in send["WFWorkflowActions"]:
+            p = a["WFWorkflowActionParameters"]
+            if "GroupingIdentifier" in p:
+                groups.setdefault(p["GroupingIdentifier"], []).append(p["WFControlFlowMode"])
+        for modes in groups.values():
+            self.assertEqual((modes[0], modes[-1]), (0, 2))
 
     def test_sniff(self):
         self.assertEqual(phone2mac.sniff(b"\x00\x00\x00\x18ftypheic")[0], "image/heic")

@@ -40,22 +40,24 @@ On the phone:
 
 ### iPhone: one-tap Shortcuts and Back Tap (recommended)
 
-Web pages on iOS can't read or write images on your clipboard by themselves. Two tiny Shortcuts fix that and make it truly one-tap.
-The pairing page on your Mac shows the exact URLs to paste in.
+Web pages on iOS can't touch your clipboard in the background, so two small Shortcuts make it truly one-tap.
+**You don't build them yourself.** Phone2Mac generates them with your Mac's address and key already filled in,
+and signs them on your Mac so the iPhone accepts them. Use either option:
 
-**“Send to Mac”**
-1. Shortcuts app → **+** → **ⓘ** → turn on **Show in Share Sheet**, receive **Any** input. Under *If there's no input* choose **Get Clipboard**.
-2. Add **Get Contents of URL** → URL `http://YOUR-MAC.local:8765/api/send?k=YOUR_KEY`
-3. **Show More** → Method **POST**, Request Body **File**, File = **Shortcut Input**.
-4. (Optional) Header `X-Filename` = *Shortcut Input → Name* to keep original file names.
+- **On the iPhone:** open the Phone2Mac page and scroll to the bottom. Tap **Add “Send to Mac”** and **Add “Get from Mac”**, then **Add Shortcut**.
+  (If Safari downloads the file instead, tap the ⬇︎ in the address bar and open it.)
+- **On the Mac:** on the pairing page, click the two **Add** buttons, then **Add Shortcut** in the Shortcuts app.
+  They sync to your iPhone through iCloud (Settings → [your name] → iCloud → Shortcuts must be on).
 
-**“Get from Mac”**
-1. **Get Contents of URL** → `http://YOUR-MAC.local:8765/api/latest?k=YOUR_KEY`
-2. **Copy to Clipboard**
+Then set up Back Tap: **Settings → Accessibility → Touch → Back Tap** (at the very bottom).
+- **Double Tap** → “Get from Mac”: copies whatever is on the Mac clipboard to the phone.
+- **Triple Tap** → “Send to Mac”: sends your phone's clipboard to the Mac, so you press ⌘V there.
 
-Then go to **Settings → Accessibility → Touch → Back Tap** and set *Double Tap* to “Get from Mac” and *Triple Tap* to “Send to Mac”.
-Now you can tap the back of your phone to copy what's on your Mac. “Send to Mac” also shows up in the Share Sheet of every app
-(Photos, Files, Safari, ...). The first run asks for **Local Network** access. Allow it.
+“Send to Mac” also appears in the Share Sheet of every app (Photos, Files, Safari, WhatsApp, ...), and you can share several photos at once.
+The first run asks to find devices on your **local network**. Tap **Allow**.
+
+Generating the Shortcuts needs macOS 12+ and an iCloud sign-in on the Mac (Apple's `shortcuts sign` uses it).
+If that's not possible, the pairing page has hand-building steps under *Build them by hand instead*.
 
 ### Android
 

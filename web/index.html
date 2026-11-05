@@ -432,10 +432,19 @@ video.thumb { width: 100%; }
       t.append(el('div', {}, el('b', {}, 'This Mac. '), 'Drag files onto this page to make them available on your phone, or just copy them in Finder. ',
         el('a', { class: 'link', href: '/pair' }, 'Pair a phone / set up Shortcuts →')));
     } else {
-      t.append(
-        el('div', {}, el('b', {}, 'Tip: '), 'Share → ', el('b', {}, 'Add to Home Screen'), ' to open this in one tap.'),
-        el('div', { style: 'margin-top:6px' }, el('b', {}, 'iPhone power move: '), 'set up the “Send to Mac” and “Get from Mac” Shortcuts (instructions on the Mac at ',
-          el('b', {}, 'localhost:8765/pair'), ') and put them on Back Tap.'));
+      t.append(el('div', {}, el('b', {}, 'Tip: '), 'Share → ', el('b', {}, 'Add to Home Screen'), ' to open this in one tap.'));
+      if (/iPhone|iPad/.test(DEVICE)) {
+        const sc = (kind) => api('/api/shortcut/' + kind + '?host=' + encodeURIComponent(location.host));
+        t.append(el('div', { class: 'card', style: 'padding:14px;margin-top:14px;color:var(--fg)' },
+          el('div', { style: 'font-weight:700;margin-bottom:4px' }, 'One-tap Shortcuts (copy & paste without opening this page)'),
+          el('div', { class: 'fsize' }, 'Tap each button, then tap ', el('b', {}, 'Add Shortcut'),
+            '. If Safari shows a download instead, tap the ⬇︎ in the address bar and open the file.'),
+          el('div', { class: 'actions' },
+            el('a', { class: 'btn small primary', href: sc('send') }, 'Add “Send to Mac”'),
+            el('a', { class: 'btn small primary', href: sc('get') }, 'Add “Get from Mac”')),
+          el('div', { class: 'fsize', style: 'margin-top:10px' }, 'Then go to ', el('b', {}, 'Settings → Accessibility → Touch → Back Tap'),
+            ': Double Tap = “Get from Mac”, Triple Tap = “Send to Mac”. When asked about devices on your local network, tap ', el('b', {}, 'Allow'), '.')));
+      }
     }
   }
 
