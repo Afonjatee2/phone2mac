@@ -85,17 +85,29 @@ if ! curl -fsS "http://127.0.0.1:$PORT/api/ping" >/dev/null 2>&1; then
   exit 1
 fi
 
-# --- firewall hint ----------------------------------------------------------
+# --- firewall: allow the phone in -------------------------------------------
+# Running in the background, macOS often never shows the "Allow incoming
+# connections?" prompt and silently blocks the phone. Allow it explicitly.
 FW=/usr/libexec/ApplicationFirewall/socketfilterfw
 if [[ -x "$FW" ]] && "$FW" --getglobalstate 2>/dev/null | grep -qi "enabled"; then
+  echo
   if "$FW" --getblockall 2>/dev/null | grep -qi "enabled"; then
-    echo
     echo "⚠️  Your firewall is set to 'Block all incoming connections', so your phone can't connect."
-    echo "   Turn that off in System Settings → Network → Firewall → Options."
+    echo "   Turn that off in System Settings → Network → Firewall → Options, then run ./install.sh again."
   else
-    echo
-    echo "ℹ️  The macOS firewall is on. If macOS asks whether Python may accept incoming"
-    echo "   network connections, click Allow (otherwise the phone can't connect)."
+    PID="$(launchctl list "$LABEL" 2>/dev/null | awk -F'= ' '/"PID"/{gsub(/;/,"",$2); print $2}')"
+    EXE="$(ps -o comm= -p "${PID:-0}" 2>/dev/null || true)"
+    if [[ -n "$EXE" && -e "$EXE" ]]; then
+      echo "The macOS firewall is on. Allowing Phone2Mac through it (your Mac password may be asked):"
+      echo "   $EXE"
+      sudo "$FW" --add "$EXE" >/dev/null && sudo "$FW" --unblockapp "$EXE" >/dev/null \
+        && echo "   ✓ allowed" \
+        || echo "   ⚠️ couldn't change the firewall. Allow 'Python' in System Settings → Network → Firewall → Options."
+      launchctl kickstart -k "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
+      sleep 1
+    else
+      echo "ℹ️  The macOS firewall is on. Allow 'Python' in System Settings → Network → Firewall → Options."
+    fi
   fi
 fi
 
